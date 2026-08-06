@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.log
+.git
+.gitignore
+README.md
+SECURITY_AUDIT.md
+prisma/migrations/**/README.md
+.vscode
+.idea
+coverage
+test
+*.spec.ts

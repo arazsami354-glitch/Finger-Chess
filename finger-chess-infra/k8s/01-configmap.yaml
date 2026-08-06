@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: finger-chess-backend-config
+  namespace: finger-chess
+data:
+  NODE_ENV: 'production'
+  PORT: '3000'
+  # Set to the ACTUAL number of proxy hops in front of this service in your
+  # real topology (see SECURITY_AUDIT.md §4.2) — an Ingress controller
+  # (nginx-ingress, ALB Ingress Controller) typically counts as 1 hop.
+  FINGER_CHESS_TRUST_PROXY_HOPS: '1'
+  FINGER_CHESS_CORS_ORIGINS: 'https://app.fingerchess.com,https://admin.fingerchess.com'
+  FINGER_CHESS_FRONTEND_URL: 'https://app.fingerchess.com'
+  # Placeholder hostname — see README.md's "Why Postgres and Redis aren't in
+  # these manifests" section. Point this at a managed Redis instance
+  # (ElastiCache/Memorystore endpoint) in production, not a self-hosted
+  # in-cluster Service.
+  FINGER_CHESS_REDIS_HOST: 'REPLACE-with-managed-redis-endpoint'
+  FINGER_CHESS_REDIS_PORT: '6379'
+  FINGER_CHESS_THROTTLE_TTL: '60'
+  FINGER_CHESS_THROTTLE_LIMIT: '100'
+  FINGER_CHESS_MAX_FAILED_LOGIN_ATTEMPTS: '5'
+  FINGER_CHESS_ACCOUNT_LOCK_MINUTES: '15'
+  FINGER_CHESS_TWO_FACTOR_APP_NAME: 'Finger Chess'
+
+  # --- Service endpoints (used in email links, OAuth callbacks, Stripe URLs) ---
+  FINGER_CHESS_API_BASE_URL: 'https://api.fingerchess.com'
+  FINGER_CHESS_GOOGLE_CALLBACK_URL: 'https://api.fingerchess.com/api/v1/auth/google/callback'
+  FINGER_CHESS_DISCORD_CALLBACK_URL: 'https://api.fingerchess.com/api/v1/auth/discord/callback'
+
+  # --- OAuth client IDs (non-secret; the matching SECRETS are in the Secret) ---
+  FINGER_CHESS_GOOGLE_CLIENT_ID: 'REPLACE_ME'
+  FINGER_CHESS_DISCORD_CLIENT_ID: 'REPLACE_ME'
+
+  # --- S3 upload (KYC documents) — non-secret config; credentials in Secret ---
+  FINGER_CHESS_AWS_REGION: 'REPLACE-with-aws-region'
+  FINGER_CHESS_AWS_S3_BUCKET: 'REPLACE-with-bucket-name'
+
+  # --- SMTP — non-secret config; the password lives in the Secret ---
+  FINGER_CHESS_MAIL_HOST: 'REPLACE-with-smtp-host'
+  FINGER_CHESS_MAIL_PORT: '587'
+  FINGER_CHESS_MAIL_USER: 'REPLACE_ME'
+  FINGER_CHESS_MAIL_FROM: '"Finger Chess" <no-reply@fingerchess.com>'

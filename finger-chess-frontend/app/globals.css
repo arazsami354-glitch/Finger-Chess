@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  FINGER CHESS — brand design tokens.
+
+  Official primary palette (exact hex, per brand spec):
+    Black #111111  →  0 0% 7%    (background / dark-mode base, foreground text in light mode)
+    Gold  #D4AF37  →  46 65% 52% (the ONE brand accent — every primary action, focus ring, and highlight)
+    White #FFFFFF  →  0 0% 100%  (background in light mode, foreground text in dark mode)
+
+  Everything else below (--gain, --loss, --warn) is FUNCTIONAL color, not
+  brand identity — standard fintech convention for "this number is
+  positive/negative" (a wallet balance, a win/loss badge) that Stripe,
+  Chess.com, and every serious money-handling product still uses even
+  within a tightly-controlled brand palette. They're deliberately kept
+  visually secondary to the black/gold/white identity, not competing
+  with it.
+
+  ACCESSIBILITY FIX (UI/UX redesign pass): the brand gold (#D4AF37) used as
+  literal TEXT/icon color directly on a white page background measures
+  ~2.1:1 contrast — well under WCAG AA's 4.5:1 for text and even under the
+  3:1 floor for meaningful UI-component contrast. It was passing this whole
+  time only because it happened to sit almost exclusively on the dark
+  background (~9:1, comfortably AAA), which masked the light-mode failure.
+  Rather than hunting down and re-styling the ~18 places across the app
+  that use `text-gold`/`border-gold`, --gold itself is now theme-aware: a
+  darker, still-recognizably-gold "ink" shade in light mode (~4.6:1 on
+  white, clears AA), and the full bright brand swatch in dark mode where it
+  already had huge headroom. Every existing className keeps working
+  unchanged — only what the token itself resolves to changed.
+  --primary needed the same treatment for a subtler reason. It isn't only a
+  button FILL — it's also consumed as `text-primary` across ~80 spots (link
+  text, icons, active nav/badge/tab states, hover accents), and as a focus
+  RING (`--ring`). On a white light-mode background the bright swatch
+  measured ~2.1:1 there too. So in light mode --primary/--accent/--ring all
+  resolve to the same dark "gold ink" as --gold (clears AA for text and for
+  UI boundaries), and --primary-foreground flips to white so solid button
+  FILLS keep passing AA (white text on dark gold ≈ 5:1) — the black-on-bright
+  gold pairing is preserved exactly as designed in dark mode, where the
+  contrast headroom never required a change.
+*/
+
+@layer base {
+  :root {
+    /* Light mode: white background, near-black text, gold as the one accent. */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 7%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 7%;
+    --primary: 42 74% 32%; /* theme-aware "gold ink" — AA-safe as text/icons on white, see note above */
+    --primary-foreground: 0 0% 100%; /* white text on the darker gold fill — still AA */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 7%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 42 74% 32%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 89%;
+    --input: 0 0% 89%;
+    --ring: 42 74% 32%;
+    --gain: 152 55% 32%;
+    --loss: 4 72% 48%;
+    --warn: 38 85% 38%;
+    /* Text-safe "gold ink" — measured ~4.6:1 against white, clears WCAG AA
+       for normal text. See the accessibility note above. */
+    --gold: 42 74% 32%;
+    --radius: 1rem;
+  }
+
+  .dark {
+    /* Dark mode is the primary experience — true black base (#111111),
+       gold as the sole accent, white text. This is the mode every brand
+       reference (Apple, Stripe, Chess.com's dark theme) the brief points
+       to actually leads with. */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 46 65% 52%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 68%;
+    --accent: 46 72% 58%;
+    --accent-foreground: 0 0% 7%;
+    --destructive: 4 75% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 46 65% 52%;
+    --gain: 152 55% 50%;
+    --loss: 4 75% 62%;
+    --warn: 42 85% 60%;
+    /* Full bright brand swatch — ~9:1 against the dark background, plenty
+       of headroom, so no adjustment needed here. */
+    --gold: 46 65% 52%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5 {
+    @apply font-display tracking-tight;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: hsla(var(--primary), 0.25);
+  }
+
+  /* A thin, unobtrusive scrollbar reads as considered rather than
+     leaving the browser default — a small, purely cosmetic detail with
+     zero effect on behavior. Firefox + WebKit both covered. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.4);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Chess-board-inspired subtle texture, used sparingly behind hero/panel
+     sections — a faint gold checker pattern on black, never distracting. */
+  .board-texture {
+    background-image:
+      linear-gradient(45deg, hsla(var(--primary), 0.035) 25%, transparent 25%),
+      linear-gradient(-45deg, hsla(var(--primary), 0.035) 25%, transparent 25%);
+    background-size: 48px 48px;
+  }
+
+  .mono-figure {
+    @apply font-mono tabular-nums;
+  }
+
+  /* True glassmorphism — blur + a slight saturation boost (glass looks
+     "glassier" when it makes colors behind it pop slightly rather than
+     just desaturating into mush) + a hairline border to catch light at
+     the edge, the way real glass does. Used for the header/nav and
+     floating panels — never as a full-page background, where it would
+     just look muddy instead of premium. */
+  .glass-panel {
+    @apply bg-card/70 border border-border/60;
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  }
+
+  /* The default "soft lift" every interactive card/panel should have —
+     a gentle shadow at rest, a touch more lift on hover, timed with the
+     premium easing curve. Applied as a class rather than baked into the
+     base Card component's default so surfaces that don't want the hover
+     lift (e.g. a dense data table row) aren't forced into it. */
+  .surface-interactive {
+    @apply shadow-soft transition-all duration-300 ease-premium;
+  }
+  .surface-interactive:hover {
+    @apply shadow-premium -translate-y-0.5;
+  }
+
+  /* Chess piece drop shadows. Applied as CSS filters (GPU-composited)
+     rather than SVG filters so every piece instance shares the same cheap
+     filter and the browser never rasterizes 32 individual shadow filters.
+     The raised variant is used while a piece is being dragged so it
+     visibly detaches from the board. */
+  .piece-shadow {
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.16));
+  }
+  .piece-shadow-raised {
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3)) drop-shadow(0 16px 20px rgba(0, 0, 0, 0.3));
+  }
+}

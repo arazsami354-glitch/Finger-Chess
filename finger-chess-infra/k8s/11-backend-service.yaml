@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: finger-chess-backend
+  namespace: finger-chess
+spec:
+  selector:
+    app: finger-chess-backend
+  ports:
+    - port: 80
+      targetPort: 3000
+  # NOT headless, NOT sessionAffinity: ClientIP here — the Redis Socket.IO
+  # adapter makes cross-pod broadcast work correctly regardless of which
+  # pod a given socket lands on, so ordinary round-robin load balancing is
+  # fine for the Service itself. Sticky-session requirements (see the
+  # Ingress below) are specifically about the WebSocket UPGRADE handshake
+  # surviving at the Ingress/load-balancer layer, not about pod selection
+  # here.
+  type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: finger-chess-backend-pdb
+  namespace: finger-chess
+spec:
+  # Guarantees at least 2 of 3 replicas stay up during voluntary
+  # disruptions (node drains, cluster upgrades) — pairs with
+  # maxUnavailable: 0 in the Deployment's rollout strategy to keep this
+  # real-money API from ever dropping to zero capacity.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: finger-chess-backend

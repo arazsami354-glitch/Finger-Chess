@@ -1,0 +1,80 @@
+# Assumes the nginx-ingress controller. If using a cloud-native ingress
+# (AWS ALB Ingress Controller, GCP Ingress) the equivalent settings are:
+#   - ALB: enable `alb.ingress.kubernetes.io/target-type: ip` +
+#     stickiness via `alb.ingress.kubernetes.io/target-group-attributes:
+#     stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600`
+#   - Idle timeout must be raised well above nginx's default 60s either way
+#     — a live chess game's Socket.IO connection can legitimately sit idle
+#     between moves for far longer than that during a Classical game.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: finger-chess-ingress
+  namespace: finger-chess
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+
+    # WebSocket support: without these, the Ingress terminates a
+    # Socket.IO connection after its default proxy-read-timeout (60s),
+    # which is shorter than a normal gap between moves in a Rapid or
+    # Classical game — players would see spurious disconnects mid-game
+    # that have nothing to do with their actual network.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: '30'
+
+    # Sticky sessions on the backend route specifically: needed for the
+    # Socket.IO handshake itself (the initial HTTP long-poll upgrade
+    # sequence involves multiple requests that must reach the SAME pod
+    # before the connection is fully upgraded to a WebSocket) — this is
+    # NOT the same requirement as "all of a user's traffic must always hit
+    # one pod forever," which the Redis Socket.IO adapter (redis-io.
+    # adapter.ts) specifically makes unnecessary once a connection is
+    # established. Session affinity here is about handshake completion,
+    # not an ongoing requirement.
+    nginx.ingress.kubernetes.io/affinity: 'cookie'
+    nginx.ingress.kubernetes.io/affinity-mode: 'balanced'
+    nginx.ingress.kubernetes.io/session-cookie-name: 'chess-ws-affinity'
+    nginx.ingress.kubernetes.io/session-cookie-max-age: '3600'
+spec:
+  tls:
+    - hosts: ['api.fingerchess.com', 'app.fingerchess.com', 'admin.fingerchess.com']
+      secretName: finger-chess-tls
+  rules:
+    - host: api.fingerchess.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: finger-chess-backend, port: { number: 80 } }
+    - host: app.fingerchess.com
+      http:
+        paths:
+          # /api goes straight to the backend Service. The player frontend's
+          # API client (lib/api.ts) and Socket.IO client call same-origin
+          # relative URLs, so routing API traffic at the ingress keeps exactly
+          # one proxy hop in front of the backend (FINGER_CHESS_TRUST_PROXY_HOPS
+          # = 1) instead of a double hop through the Next.js server.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: finger-chess-backend, port: { number: 80 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: finger-chess-frontend, port: { number: 80 } }
+    - host: admin.fingerchess.com
+      http:
+        paths:
+          # The admin SPA is a static build with no server-side proxy of its
+          # own (its nginx fallback would return index.html for /api), so this
+          # rule is REQUIRED for the admin console to reach the backend.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: finger-chess-backend, port: { number: 80 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: finger-chess-admin, port: { number: 80 } }

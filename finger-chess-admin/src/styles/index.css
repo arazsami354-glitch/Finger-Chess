@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-body antialiased;
+    background-image:
+      linear-gradient(180deg, rgba(201, 162, 75, 0.04), transparent 320px);
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+  }
+
+  /* Visible keyboard focus everywhere — never suppressed. */
+  :focus-visible {
+    outline: 2px solid theme('colors.brass');
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgba(201, 162, 75, 0.25);
+  }
+
+  /* Slim, quiet scrollbars that still meet the dark surface. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #262C39;
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* The signature texture: a faint repeating hairline pattern evoking a
+     ledger's ruled page, used sparingly on panel backgrounds. */
+  .ledger-texture {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent,
+      transparent 27px,
+      rgba(255, 255, 255, 0.025) 28px
+    );
+  }
+
+  .panel {
+    @apply bg-surface border border-border rounded-lg shadow-soft transition-shadow duration-300 ease-premium;
+  }
+
+  .mono-figure {
+    @apply font-mono tabular-nums;
+  }
+
+  .input {
+    @apply w-full bg-canvas border border-border rounded px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brass transition-all duration-200 ease-premium;
+  }
+
+  .th {
+    @apply text-left text-xs uppercase tracking-wider text-ink-faint font-medium px-4 py-2.5 border-b border-border;
+  }
+
+  .td {
+    @apply px-4 py-3 text-sm text-ink border-b border-border-soft;
+  }
+}

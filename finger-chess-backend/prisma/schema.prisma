@@ -1,0 +1,1125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  player
+  support_agent
+  moderator
+  finance_admin
+  super_admin
+}
+
+enum UserStatus {
+  active
+  suspended
+  banned
+  deleted
+}
+
+enum KycStatus {
+  not_submitted
+  pending
+  needs_more_info
+  verified
+  rejected
+}
+
+enum KycDocumentType {
+  passport
+  national_id
+  drivers_license
+  health_card
+}
+
+enum KycDocumentStatus {
+  pending
+  needs_more_info
+  approved
+  rejected
+}
+
+enum PenaltyType {
+  warning
+  suspension
+  chat_mute
+}
+
+enum PenaltyCategory {
+  cheating
+  chat_abuse
+  fraud
+  other
+}
+
+enum OAuthProvider {
+  google
+  discord
+}
+
+enum TxnType {
+  deposit
+  withdrawal
+  withdrawal_hold
+  withdrawal_reversal
+  entry_fee_hold
+  entry_fee_capture
+  entry_fee_release
+  prize_credit
+  commission_debit
+  refund
+  fraud_hold
+  adjustment
+}
+
+enum TxnStatus {
+  pending
+  completed
+  failed
+  reversed
+}
+
+enum GameStatus {
+  waiting
+  ongoing
+  completed
+  aborted
+  disputed
+}
+
+enum GameResult {
+  white_win
+  black_win
+  draw
+  aborted
+}
+
+enum PlayerColor {
+  white
+  black
+}
+
+enum MatchInvitationStatus {
+  pending
+  accepted
+  declined
+  cancelled
+  expired
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  phone             String?   @unique
+  passwordHash      String?   @map("password_hash") // nullable: OAuth-only accounts have no password
+  fullName          String?   @map("full_name")
+  countryCode       String?   @map("country_code")
+  role              UserRole  @default(player)
+  status            UserStatus @default(active)
+  kycStatus         KycStatus @default(not_submitted) @map("kyc_status")
+  emailVerifiedAt   DateTime? @map("email_verified_at")
+
+  // --- 2FA (TOTP) ---
+  twoFactorEnabled     Boolean  @default(false) @map("two_factor_enabled")
+  twoFactorSecret      String?  @map("two_factor_secret") // encrypted at rest (KMS/envelope encryption) in production
+  twoFactorBackupCodes String[] @default([]) @map("two_factor_backup_codes") // stored as argon2 hashes, never plaintext
+
+  // --- Account lockout ---
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime? @map("locked_until")
+
+  // --- Compliance: age & platform rules ---
+  // Stored as a date of birth rather than a raw integer "age" — an integer
+  // goes stale the moment a birthday passes and would need a background job
+  // to keep current; a date of birth is a durable fact that age is always
+  // correctly derivable from, on demand, for as long as the account exists.
+  dateOfBirth          DateTime? @map("date_of_birth")
+  // Denormalized fast-path for the chat-send hot path (checked on every
+  // message) — the durable audit trail of WHY and for how long lives in
+  // PenaltyRecord below; this field is just "is the user currently muted,
+  // right now," kept in sync whenever a chat_mute PenaltyRecord is issued
+  // or lifted.
+  chatMutedUntil       DateTime? @map("chat_muted_until")
+  // Collected at registration as "which ID type do you have" — a real,
+  // persisted fact rather than transient form state, so the KYC upload
+  // page can pre-select it later even in a brand new session. Purely a
+  // UX default: the actual document type recorded on a KycDocument at
+  // upload time is the source of truth for what was actually submitted,
+  // and can differ from this if the user changes their mind.
+  preferredIdType      KycDocumentType? @map("preferred_id_type")
+
+  // --- Admin moderation ---
+  statusReason         String?   @map("status_reason")    // why the account is suspended/banned
+  suspendedUntil       DateTime? @map("suspended_until")   // null = indefinite (or not suspended)
+
+  // --- Social profile ---
+  bio                  String?   @db.VarChar(300)
+  avatarKey            String?   @map("avatar_key")        // S3 object key, resolved to a signed URL by the media service — never a public URL
+  lastActiveAt         DateTime? @map("last_active_at")     // DB fallback for "last seen" when no live Redis presence entry exists (server restart, long offline)
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  wallet            Wallet?
+  sessions          Session[]
+  oauthAccounts     OAuthAccount[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  deposits          Deposit[]
+  withdrawals       Withdrawal[]         @relation("WithdrawalUser")
+  reviewedWithdrawals Withdrawal[]       @relation("WithdrawalReviewer")
+  gamesAsWhite      Game[]               @relation("WhitePlayer")
+  gamesAsBlack      Game[]               @relation("BlackPlayer")
+  gamesWon          Game[]               @relation("Winner")
+  notifications     Notification[]
+  notificationPreference NotificationPreference?
+  supportTickets    SupportTicket[]
+
+  // --- Social system relations ---
+  sentFriendRequests     FriendRequest[]        @relation("FriendRequestSender")
+  receivedFriendRequests FriendRequest[]        @relation("FriendRequestReceiver")
+  friendshipsAsA         Friendship[]           @relation("FriendshipUserA")
+  friendshipsAsB         Friendship[]           @relation("FriendshipUserB")
+  blocksMade             BlockedUser[]          @relation("Blocker")
+  blocksReceived         BlockedUser[]          @relation("Blocked")
+  mutesMade              MutedUser[]            @relation("Muter")
+  mutesReceived          MutedUser[]            @relation("Muted")
+  conversationParticipants ConversationParticipant[]
+  messagesSent           Message[]              @relation("MessageSender")
+  favoriteOpponents      FavoriteOpponent[]      @relation("FavoriteOpponentOwner")
+  favoritedByOthers      FavoriteOpponent[]      @relation("FavoriteOpponentTarget")
+  sentMatchInvitations   MatchInvitation[]       @relation("MatchInvitationSender")
+  receivedMatchInvitations MatchInvitation[]     @relation("MatchInvitationRecipient")
+  achievements           UserAchievement[]
+  badges                 UserBadge[]
+  privacySettings        PrivacySettings?
+  activities             UserActivity[]
+  reportsFiled           Report[]               @relation("ReportReporter")
+  reportsAgainst         Report[]               @relation("ReportTarget")
+
+  // --- Compliance relations ---
+  kycDocuments           KycDocument[]          @relation("KycDocumentOwner")
+  kycDocumentsReviewed   KycDocument[]          @relation("KycDocumentReviewer")
+  ruleAcceptances        RuleAcceptance[]
+  penaltiesReceived      PenaltyRecord[]        @relation("PenaltyUser")
+  penaltiesIssued        PenaltyRecord[]        @relation("PenaltyIssuer")
+  penaltiesLifted        PenaltyRecord[]        @relation("PenaltyLifter")
+  deviceFingerprints     DeviceFingerprint[]
+
+  @@map("users")
+}
+
+model OAuthAccount {
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  provider       OAuthProvider
+  providerUserId String        @map("provider_user_id")
+  email          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  usedAt     DateTime? @map("used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  usedAt     DateTime? @map("used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model Session {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  refreshTokenHash  String   @unique @map("refresh_token_hash")
+  deviceFingerprint String?  @map("device_fingerprint") // hash of UA + client-supplied device signals
+  deviceLabel       String?  @map("device_label")        // e.g. "Chrome on Windows", "iPhone app"
+  deviceInfo        Json?    @map("device_info")
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent")
+  isTrustedDevice   Boolean  @default(false) @map("is_trusted_device")
+  isRevoked         Boolean  @default(false) @map("is_revoked")
+  expiresAt         DateTime @map("expires_at")
+  lastUsedAt        DateTime @default(now()) @map("last_used_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Wallet {
+  id                String   @id @default(uuid())
+  userId            String   @unique @map("user_id")
+  availableBalance  Decimal  @default(0) @map("available_balance") @db.Decimal(18, 2)
+  lockedBalance     Decimal  @default(0) @map("locked_balance") @db.Decimal(18, 2)
+  pendingBalance    Decimal  @default(0) @map("pending_balance") @db.Decimal(18, 2)
+  currency          String   @default("USD")
+  version           Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transactions      WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id               String    @id @default(uuid())
+  walletId         String    @map("wallet_id")
+  type             TxnType
+  amount           Decimal   @db.Decimal(18, 2)
+  balanceAfter     Decimal   @map("balance_after") @db.Decimal(18, 2)
+  referenceType    String?   @map("reference_type")
+  referenceId      String?   @map("reference_id")
+  idempotencyKey   String    @unique @map("idempotency_key")
+  status           TxnStatus @default(completed)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  wallet           Wallet    @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, createdAt])
+  @@index([status, type])
+  @@map("wallet_transactions")
+}
+
+model Deposit {
+  id                  String   @id @default(uuid())
+  userId              String   @map("user_id")
+  walletTransactionId String?  @map("wallet_transaction_id")
+  paymentGateway      String   @map("payment_gateway")
+  gatewayReference    String   @unique @map("gateway_reference")
+  amount              Decimal  @db.Decimal(18, 2)
+  currency            String   @default("USD")
+  status              String   @default("initiated")
+  initiatedAt         DateTime @default(now()) @map("initiated_at")
+  completedAt         DateTime? @map("completed_at")
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([status, completedAt])
+  @@map("deposits")
+}
+
+model Withdrawal {
+  id                      String    @id @default(uuid())
+  userId                  String    @map("user_id")
+  walletTransactionId     String?   @map("wallet_transaction_id")
+  amount                  Decimal   @db.Decimal(18, 2)
+  currency                String    @default("USD")
+  payoutMethod            String    @map("payout_method")
+  payoutDetailsEncrypted  Bytes?    @map("payout_details_encrypted")
+  status                  String    @default("requested")
+  reviewedBy              String?   @map("reviewed_by")
+  requestedAt             DateTime  @default(now()) @map("requested_at")
+  processedAt             DateTime? @map("processed_at")
+
+  user                    User      @relation("WithdrawalUser", fields: [userId], references: [id], onDelete: Restrict)
+  reviewer                User?     @relation("WithdrawalReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([status, processedAt])
+  @@map("withdrawals")
+}
+
+model FraudSignal {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  walletId      String?  @map("wallet_id")
+  signalType    String   @map("signal_type")   // 'velocity_deposit' | 'velocity_withdrawal' | 'deposit_withdraw_cycle' | 'multi_account_device' | 'high_risk_geo' | 'chargeback' | 'card_testing'
+  severity      String                          // 'low' | 'medium' | 'high' | 'critical'
+  details       Json?
+  referenceType String?  @map("reference_type") // 'deposit' | 'withdrawal' | 'game'
+  referenceId   String?  @map("reference_id")
+  status        String   @default("open")       // 'open' | 'reviewed' | 'dismissed' | 'confirmed'
+  reviewedBy    String?  @map("reviewed_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("fraud_signals")
+}
+
+model AccountingReconciliationLog {
+  id              String   @id @default(uuid())
+  walletId        String   @map("wallet_id")
+  ledgerBalance   Decimal  @map("ledger_balance") @db.Decimal(18, 2)  // sum derived from wallet_transactions
+  cachedBalance   Decimal  @map("cached_balance") @db.Decimal(18, 2)  // wallets.available_balance snapshot at check time
+  driftAmount     Decimal  @map("drift_amount") @db.Decimal(18, 2)
+  status          String   @default("ok")                            // 'ok' | 'drift_detected' | 'resolved'
+  checkedAt       DateTime @default(now()) @map("checked_at")
+
+  @@index([walletId])
+  @@index([status])
+  @@map("accounting_reconciliation_logs")
+}
+
+model Refund {
+  id                    String    @id @default(uuid())
+  originalTransactionId String   @map("original_wallet_transaction_id")
+  userId                String    @map("user_id")
+  amount                Decimal   @db.Decimal(18, 2)
+  reason                String
+  status                String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'completed'
+  approvedBy            String?   @map("approved_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  processedAt           DateTime? @map("processed_at")
+
+  @@index([userId])
+  // Backs the admin pending-review refund list (WalletController.getPendingRefunds)
+  // and the dashboard count (AdminDashboardService), both WHERE status='pending'.
+  // Name mapped to match migration 0013's hand-written index name.
+  @@index([status], map: "idx_refunds_status")
+  @@map("refunds")
+}
+
+model Rating {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  gameMode         String   @map("game_mode") // 'bullet' | 'blitz' | 'rapid' | 'classical'
+  rating           Int      @default(1200)
+  peakRating       Int      @default(1200) @map("peak_rating")
+  ratingDeviation  Float    @default(350) @map("rating_deviation") // Glicko-2 RD
+  volatility       Float    @default(0.06)
+  gamesPlayed      Int      @default(0) @map("games_played")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, gameMode])
+  @@index([gameMode, rating])
+  @@map("ratings")
+}
+
+model Game {
+  id                String      @id @default(uuid())
+  playerWhiteId     String      @map("player_white_id")
+  playerBlackId     String      @map("player_black_id")
+  entryFee          Decimal     @default(0) @map("entry_fee") @db.Decimal(18, 2)
+  prizeAmount       Decimal?    @map("prize_amount") @db.Decimal(18, 2)
+  commissionAmount  Decimal?    @map("commission_amount") @db.Decimal(18, 2)
+  timeControl       String      @map("time_control")
+  // Rated games move Elo on settlement; casual games are pure practice and
+  // must never touch a rating. Both quick play and friend challenges can set
+  // this; it defaults to rated so existing matchmaking behavior is unchanged.
+  rated             Boolean     @default(true)
+  status            GameStatus  @default(waiting)
+  result            GameResult?
+  winnerId          String?     @map("winner_id")
+  startedAt         DateTime?   @map("started_at")
+  endedAt           DateTime?   @map("ended_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+
+  playerWhite       User        @relation("WhitePlayer", fields: [playerWhiteId], references: [id])
+  playerBlack       User        @relation("BlackPlayer", fields: [playerBlackId], references: [id])
+  winner            User?       @relation("Winner", fields: [winnerId], references: [id])
+  moves             GameMove[]
+  matchInvitation   MatchInvitation? @relation("MatchInvitationGame")
+
+  @@index([status])
+  @@index([playerWhiteId])
+  @@index([playerBlackId])
+  @@index([status, endedAt])
+  // Backs per-winner completed-game counts (achievements.service.ts, profile
+  // win/loss stats) — WHERE winner_id = ? AND status = 'completed'.
+  @@index([winnerId, status])
+  @@map("games")
+}
+
+model GameMove {
+  id                String      @id @default(uuid())
+  gameId            String      @map("game_id")
+  moveNumber        Int         @map("move_number")
+  color             PlayerColor
+  moveSan           String      @map("move_san")
+  fenAfter          String      @map("fen_after")
+  clockRemainingMs  Int         @map("clock_remaining_ms")
+  createdAt         DateTime    @default(now()) @map("created_at")
+
+  game              Game        @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, moveNumber, color])
+  @@map("game_moves")
+}
+
+model AnticheatReport {
+  id                        String   @id @default(uuid())
+  gameId                    String   @map("game_id")
+  userId                    String   @map("user_id")
+  averageCentipawnLoss      Float    @map("average_centipawn_loss")
+  topEngineMoveMatchPercent Float    @map("top_engine_move_match_percent")
+  movesAnalyzed             Int      @map("moves_analyzed")
+  suspicionScore            Float    @map("suspicion_score") // 0-100, higher = more suspicious
+  flagged                   Boolean  @default(false)
+  reviewStatus              String   @default("unreviewed") @map("review_status") // 'unreviewed' | 'reviewed_clean' | 'confirmed_cheating'
+  reviewedBy                String?  @map("reviewed_by")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  @@unique([gameId, userId])
+  @@index([flagged])
+  // Backs per-user anticheat lookups (fair-play-detector.service.ts,
+  // risk-score.service.ts, admin users/fairplay services) — WHERE user_id = ?
+  // ORDER BY created_at DESC.
+  @@index([userId, createdAt])
+  // Backs the admin review queue (AdminGamesService.listFlagged,
+  // AdminDashboardService) which filters flagged=true AND review_status='unreviewed'
+  // — composite serves that exact shape in one scan. Name mapped to match
+  // migration 0013's hand-written index name.
+  @@index([flagged, reviewStatus], map: "idx_anticheat_reports_flagged_review_status")
+  @@map("anticheat_reports")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  channel   String
+  category  String
+  title     String
+  message   String
+  metadata  Json?
+  // Groups "similar" notifications so a flood of the same event (a burst of
+  // friend requests, several private messages in one conversation, repeated
+  // match invitations) collapses into a single unread row whose `count`
+  // keeps climbing instead of one row per event. See NotificationsService.
+  groupKey  String?  @map("group_key")
+  count     Int      @default(1)
+  readAt    DateTime? @map("read_at")
+  actionUrl String?  @map("action_url")
+  actorName String?  @map("actor_name")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  // Cursor pagination (list is ORDER BY created_at DESC) and the grouped
+  // unread-merge lookup (WHERE user_id = ? AND group_key = ? AND NOT is_read).
+  @@index([userId, createdAt])
+  @@index([userId, groupKey, isRead], map: "idx_notifications_user_group_read")
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  // JSON map of category -> enabled. An absent/empty map means "all enabled"
+  // (see NOTIFICATION_DEFAULTS in the notifications module). Only a user who
+  // has actually opted out of something needs a row.
+  categories     Json     @default("{}")
+  soundEnabled   Boolean  @default(true) @map("sound_enabled")
+  desktopEnabled Boolean  @default(false) @map("desktop_enabled")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("notification_preferences")
+}
+
+model SupportTicket {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  subject        String
+  category       String
+  status         String   @default("open")
+  priority       String   @default("medium")
+  assignedTo     String?  @map("assigned_to")
+  internalNotes  String?  @map("internal_notes") // admin-only working notes — never exposed to the user
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  closedAt       DateTime? @map("closed_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages   SupportTicketMessage[]
+
+  // Backs SupportService.listOwnTickets / AdminUsersService open-ticket counts
+  // (user_id) and AdminSupportService.list / AdminDashboardService counts
+  // (status). Names mapped to match migration 0013's hand-written index names.
+  @@index([userId], map: "idx_support_tickets_user_id")
+  @@index([status], map: "idx_support_tickets_status")
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id             String   @id @default(uuid())
+  ticketId       String   @map("ticket_id")
+  senderId       String   @map("sender_id")
+  senderType     String   @map("sender_type") // 'user' | 'admin'
+  message        String
+  attachmentUrl  String?  @map("attachment_url")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  ticket         SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("support_ticket_messages")
+}
+
+model AdminLog {
+  id          String   @id @default(uuid())
+  adminId     String   @map("admin_id")
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String?  @map("target_id")
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("admin_logs")
+}
+
+model SecurityLog {
+  id                 String   @id @default(uuid())
+  userId             String?  @map("user_id")
+  eventType          String   @map("event_type")
+  ipAddress          String?  @map("ip_address")
+  userAgent          String?  @map("user_agent")
+  deviceFingerprint  String?  @map("device_fingerprint")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("security_logs")
+}
+
+// ============================================================================
+// SOCIAL SYSTEM
+// ============================================================================
+
+enum FriendRequestStatus {
+  pending
+  accepted
+  declined
+  cancelled
+}
+
+// Pending workflow only — once accepted, the durable "these two people are
+// friends" fact lives in Friendship below, not here. Keeping the request's
+// lifecycle (who asked, when, and how it resolved) separate from the
+// resulting relationship means declining and later re-requesting doesn't
+// require deleting/resurrecting a relationship row, and the request
+// history itself is preserved for abuse investigation (spam-requesting).
+model FriendRequest {
+  id          String              @id @default(uuid())
+  senderId    String              @map("sender_id")
+  receiverId  String              @map("receiver_id")
+  status      FriendRequestStatus @default(pending)
+  createdAt   DateTime            @default(now()) @map("created_at")
+  respondedAt DateTime?           @map("responded_at")
+
+  sender      User @relation("FriendRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver    User @relation("FriendRequestReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  // One pending request per direction at a time — re-requesting after a
+  // decline is a new row only once the old one is no longer 'pending'
+  // (enforced in service logic, since Prisma can't express a partial
+  // unique index directly; the migration adds it at the SQL layer).
+  //
+  // NOTE: there is intentionally NO @@unique([senderId, receiverId]) here.
+  // A full unique on the pair would block re-requesting after a decline,
+  // cancel, or remove — a normal, legitimate flow. Uniqueness is enforced
+  // at the SQL layer by the partial unique index on (sender_id, receiver_id)
+  // WHERE status = 'pending' (see migration 0007 + 0017), plus the service
+  // layer's explicit pending-request checks.
+  @@index([receiverId, status])
+  @@map("friend_requests")
+}
+
+// The accepted relationship — one row per pair, ever, ordered
+// (userAId < userBId) so the relationship is naturally undirected without
+// storing it twice. Service layer is responsible for the ordering; the
+// migration's CHECK constraint enforces it can't be violated even by a
+// bug that skips the service.
+model Friendship {
+  id        String   @id @default(uuid())
+  userAId   String   @map("user_a_id")
+  userBId   String   @map("user_b_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userA User @relation("FriendshipUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("FriendshipUserB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
+  @@map("friendships")
+}
+
+// Blocking is one-directional and intentionally has NO relationship to
+// Friendship — blocking someone you're not even friends with (a stranger
+// harassing you) must work identically to blocking a friend. The service
+// layer checks this table before allowing a friend request, a DM, or
+// showing the blocker's profile/presence to the blocked user at all.
+model BlockedUser {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  reason    String?  @db.VarChar(300)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocked_users")
+}
+
+// Muting ≠ blocking: a muted user isn't told anything changed, their
+// messages/notifications are just hidden from the muter's view. Softer
+// than a block, no relationship-severing side effects.
+model MutedUser {
+  id        String   @id @default(uuid())
+  muterId   String   @map("muter_id")
+  mutedId   String   @map("muted_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  muter User @relation("Muter", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("Muted", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@map("muted_users")
+}
+
+enum ConversationType {
+  direct
+  game
+}
+
+// A conversation is deliberately generic (direct DM today, but `type: game`
+// covers the in-game chat requirement using the exact same message/
+// delivery-receipt machinery instead of a parallel implementation) —
+// every conversation has N participants via ConversationParticipant even
+// though direct conversations only ever have 2.
+model Conversation {
+  id            String           @id @default(uuid())
+  type          ConversationType @default(direct)
+  gameId        String?          @map("game_id") // set only when type = 'game'
+  lastMessageAt DateTime?        @map("last_message_at") // denormalized for fast "recent conversations" sorting without a join+aggregate
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id                 String    @id @default(uuid())
+  conversationId     String    @map("conversation_id")
+  userId             String    @map("user_id")
+  lastReadMessageId  String?   @map("last_read_message_id") // watermark: everything at/before this message is "read" — avoids a per-message read-receipt row per participant
+  lastReadAt         DateTime? @map("last_read_at")
+  isMuted            Boolean   @default(false) @map("is_muted") // muted at the CONVERSATION level (e.g. a noisy game-chat), distinct from muting a USER platform-wide (MutedUser)
+  joinedAt           DateTime  @default(now()) @map("joined_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+enum MessageContentType {
+  text
+  system // "X joined", "X left the game", etc — rendered differently, never subject to the profanity filter or encryption
+}
+
+model Message {
+  id             String             @id @default(uuid())
+  conversationId String             @map("conversation_id")
+  senderId       String             @map("sender_id")
+  contentType    MessageContentType @default(text)
+  // Encrypted at rest (AES-256-GCM, see messaging/encryption.util.ts) for
+  // `text` messages — ciphertext + auth tag + iv, base64-encoded together.
+  // `system` messages are stored as plain text (nothing sensitive, and
+  // they need to stay greppable for support/admin tooling).
+  content        String
+  isFlagged      Boolean            @default(false) @map("is_flagged") // profanity/spam filter hit — still delivered (never silently dropped) but visible to moderation
+  createdAt      DateTime           @default(now()) @map("created_at")
+  editedAt       DateTime?          @map("edited_at")
+  deletedAt      DateTime?          @map("deleted_at") // soft delete — "this message was deleted" placeholder, never hard-removed (moderation/report evidence)
+
+  conversation   Conversation          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User                  @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  deliveryStatuses MessageDeliveryStatus[]
+  reports        Report[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+enum DeliveryState {
+  sent
+  delivered
+  read
+}
+
+// One row per (message, recipient) — NOT per sender, since delivery/read
+// state is meaningful only from the recipient's side. A 2-person DM gets
+// exactly one row per message (the other participant); a future group
+// conversation gets one per other participant, without any schema change.
+model MessageDeliveryStatus {
+  id        String        @id @default(uuid())
+  messageId String        @map("message_id")
+  userId    String        @map("user_id")
+  status    DeliveryState @default(sent)
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, status])
+  @@map("message_delivery_statuses")
+}
+
+// Live status (online/away/in_game) lives in Redis for speed — this table
+// is the durable fallback so a profile can still show "last seen 3 hours
+// ago" after a server restart or once someone's been offline long enough
+// to fall out of Redis. Written to periodically (on disconnect, on status
+// change), not on every heartbeat.
+model UserPresenceSnapshot {
+  userId    String   @id @map("user_id")
+  status    String   @default("offline") // 'online' | 'away' | 'in_game' | 'in_tournament' | 'spectating' | 'do_not_disturb' | 'invisible' | 'offline' — matches PresenceService's enum (widened to VARCHAR(20) by migration 0021), kept as a string here since this row is a fallback snapshot, not the live source of truth
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  @@map("user_presence_snapshots")
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g. 'first_win', 'hundred_games', 'giant_slayer'
+  name        String
+  description String
+  icon        String   // icon identifier (lucide icon name or asset key), not a binary asset
+  criteria    Json     // structured, service-interpreted unlock condition — e.g. {"type":"games_won","threshold":1}
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  unlockedBy  UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  achievementId String   @map("achievement_id")
+  unlockedAt    DateTime @default(now()) @map("unlocked_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String
+  icon        String
+  tier        String   @default("standard") // 'standard' | 'premium' | 'seasonal' — display grouping only, not a game-logic distinction
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  awardedTo   UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  badgeId   String   @map("badge_id")
+  awardedAt DateTime @default(now()) @map("awarded_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+// "Favorite opponents" — explicitly NOT the same relation as Friendship;
+// you can favorite a frequent rival you've never friended, and favoriting
+// requires no reciprocal action (one-directional, like a bookmark).
+model FavoriteOpponent {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  opponentId String   @map("opponent_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User @relation("FavoriteOpponentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  opponent User @relation("FavoriteOpponentTarget", fields: [opponentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, opponentId])
+  @@map("favorite_opponents")
+}
+
+// A challenge sent from one friend to another to start an immediate match.
+// The lifecycle (who challenged whom, with what settings, and how it
+// resolved) is preserved for abuse investigation the same way friend
+// requests are; once accepted the durable "these two are playing right now"
+// fact lives in the Game row this points at.
+model MatchInvitation {
+  id              String                @id @default(uuid())
+  senderId        String                @map("sender_id")
+  recipientId     String                @map("recipient_id")
+  timeControlId   String                @map("time_control_id") // TIME_CONTROLS id, resolved to a display label client-side
+  entryFee        Decimal               @default(0) @map("entry_fee") @db.Decimal(18, 2)
+  rated           Boolean               @default(true)
+  // The SENDER's preferred color — 'random' | 'white' | 'black'. The
+  // recipient plays the opposite color (or takes the coin flip when the
+  // sender picks random).
+  colorPreference String                @default("random") @map("color_preference")
+  message         String?               @db.VarChar(300) // optional challenge note shown to the recipient
+  status          MatchInvitationStatus @default(pending)
+  gameId          String?               @unique @map("game_id") // set once accepted -> the game both players join
+  expiresAt       DateTime              @map("expires_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  respondedAt     DateTime?             @map("responded_at")
+
+  sender    User    @relation("MatchInvitationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User    @relation("MatchInvitationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  game      Game?   @relation("MatchInvitationGame", fields: [gameId], references: [id], onDelete: SetNull)
+
+  // Backs the invitation-center queries (incoming / outgoing pending).
+  @@index([recipientId, status])
+  @@index([senderId, status])
+  @@map("match_invitations")
+}
+
+model PrivacySettings {
+  userId               String  @id @map("user_id")
+  whoCanMessage        String  @default("friends") @map("who_can_message")         // 'everyone' | 'friends' | 'none'
+  whoCanFriendRequest  String  @default("everyone") @map("who_can_friend_request") // 'everyone' | 'friends_of_friends' | 'none'
+  showOnlineStatus     Boolean @default(true) @map("show_online_status")
+  showProfileStats     Boolean @default(true) @map("show_profile_stats")
+  allowFriendSuggestions Boolean @default(true) @map("allow_friend_suggestions")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("privacy_settings")
+}
+
+// Source feed for "Friend Activity Notifications" — a user's own
+// noteworthy events get written here; the notification fan-out (writing a
+// Notification row to every friend) is a service-layer concern that reads
+// this table, not something this table does itself.
+model UserActivity {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  activityType String   @map("activity_type") // 'game_won' | 'achievement_unlocked' | 'rating_milestone' | 'badge_awarded'
+  metadata     Json?
+  visibility   String   @default("friends") @map("visibility") // 'public' | 'friends' | 'private' — respects PrivacySettings at write time, not just read time
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("user_activities")
+}
+
+// Covers BOTH "Report Messages" and "Report Players" — messageId is
+// nullable specifically so a player-conduct report (harassment pattern
+// across many messages, an offensive profile/avatar, impersonation) isn't
+// forced to point at one arbitrary message that doesn't really represent
+// the complaint.
+model Report {
+  id               String    @id @default(uuid())
+  reporterId       String    @map("reporter_id")
+  reportedUserId   String    @map("reported_user_id")
+  reportedMessageId String?  @map("reported_message_id")
+  category         String    // 'harassment' | 'spam' | 'impersonation' | 'cheating' | 'match_manipulation' | 'inappropriate_content' | 'other'
+  description      String?   @db.VarChar(1000)
+  status           String    @default("open") // 'open' | 'reviewed' | 'actioned' | 'dismissed' — same vocabulary as fraud_signals/anticheat_reports for one consistent admin review pattern
+  reviewedBy       String?   @map("reviewed_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  reporter       User     @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser   User     @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reportedMessage Message? @relation(fields: [reportedMessageId], references: [id], onDelete: SetNull)
+
+  @@index([reportedUserId, status])
+  @@index([status])
+  @@map("reports")
+}
+
+// ============================================================================
+// COMPLIANCE: IDENTITY VERIFICATION (KYC), PLATFORM RULES, PENALTIES
+// ============================================================================
+
+// One row per submitted document — a user can resubmit after a rejection,
+// so this is a history, not a single mutable record. `User.kycStatus`
+// remains the fast-path "can they use money features right now" check;
+// this table is the durable, auditable evidence behind that status.
+model KycDocument {
+  id                  String             @id @default(uuid())
+  userId              String             @map("user_id")
+  documentType        KycDocumentType    @map("document_type")
+  storageKey          String             @map("storage_key") // S3 object key — private bucket, signed URLs only, never a public link
+  status              KycDocumentStatus  @default(pending)
+  rejectionReason     String?            @map("rejection_reason") @db.VarChar(500)
+
+  // File metadata captured at submission time so admins can triage without
+  // fetching the object from S3, and review notes visible only to admins
+  // (deliberately never returned by any user-facing endpoint).
+  fileName           String?            @map("file_name") @db.VarChar(255)
+  fileSize           Int?               @map("file_size")
+  mimeType           String?            @map("mime_type") @db.VarChar(64)
+  notes              String?            @db.VarChar(2000)
+
+  // Scalability for future automated verification providers: 'manual' is
+  // the only value in use today (a human admin reviews every document),
+  // but a future integration (Onfido, Jumio, Persona, etc.) can populate
+  // `provider`, `providerReferenceId`, and `providerResponse` without any
+  // schema change — the review endpoints and the User.kycStatus contract
+  // stay identical either way.
+  provider            String             @default("manual")
+  providerReferenceId String?            @map("provider_reference_id")
+  providerResponse    Json?              @map("provider_response")
+
+  reviewedBy          String?            @map("reviewed_by")
+  reviewedAt          DateTime?          @map("reviewed_at")
+  submittedAt         DateTime           @default(now()) @map("submitted_at")
+
+  user     User  @relation("KycDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("KycDocumentReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_documents")
+}
+
+// A user accepts a specific, versioned snapshot of the rules — re-recorded
+// every time the platform updates them (unique per user+version, not a
+// single mutable "accepted: true" flag), so there's always a durable answer
+// to "which exact rules did this person agree to, and when."
+model RuleAcceptance {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  version    String
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+  ipAddress  String?  @map("ip_address")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@map("rule_acceptances")
+}
+
+// Unifies suspension history AND chat-mute history behind one shape, since
+// both are structurally identical (who, why, how long, who lifted it early
+// if anyone) — `penaltyType` is the only thing that distinguishes them.
+// `durationHours` is captured at issuance time from whatever the platform's
+// configured default was THEN, so a later admin changing the configured
+// duration never rewrites what a past penalty's duration actually was.
+model PenaltyRecord {
+  id             String          @id @default(uuid())
+  userId         String          @map("user_id")
+  penaltyType    PenaltyType     @map("penalty_type")
+  category       PenaltyCategory @default(other)
+  reason         String          @db.VarChar(500)
+  durationHours  Int?            @map("duration_hours") // null = indefinite
+  startedAt      DateTime        @default(now()) @map("started_at")
+  endsAt         DateTime?       @map("ends_at")         // null = indefinite; otherwise startedAt + durationHours, computed once at creation
+  issuedBy       String?         @map("issued_by")       // null = system-issued (e.g. automated anti-cheat action), not a human admin
+  liftedAt       DateTime?       @map("lifted_at")
+  liftedBy       String?         @map("lifted_by")
+
+  user     User  @relation("PenaltyUser", fields: [userId], references: [id], onDelete: Cascade)
+  issuer   User? @relation("PenaltyIssuer", fields: [issuedBy], references: [id], onDelete: SetNull)
+  lifter   User? @relation("PenaltyLifter", fields: [liftedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId, penaltyType])
+  @@index([endsAt])
+  @@map("penalty_records")
+}
+
+// ============================================================================
+// ANTI-CHEAT: DEVICE FINGERPRINTING
+// ============================================================================
+
+// One row per (user, session) — recorded on login, not on every request,
+// so this is a history of "which devices/browsers has this account been
+// used from," not a per-request log. The multi-account detector queries
+// across USERS for a shared fingerprintHash; the tamper detector reads
+// tamperFlags on a single row.
+model DeviceFingerprint {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  // A stable hash of the client-collected signal set (screen, timezone,
+  // platform, canvas/audio fingerprint, etc.) — the same physical
+  // device/browser combination produces the same hash across different
+  // logins and, critically, across different USER ACCOUNTS, which is
+  // exactly the multi-accounting signal this exists to catch.
+  fingerprintHash String  @map("fingerprint_hash")
+  rawSignals     Json     @map("raw_signals") // the full client-reported signal set — kept for admin review, not just the derived hash
+  ipAddress      String   @map("ip_address")
+  userAgent      String   @map("user_agent") @db.VarChar(500)
+  // Specific, named anomalies the client-side collector itself detected —
+  // e.g. 'webdriver_flag', 'headless_ua_string', 'canvas_blocked',
+  // 'inconsistent_languages'. An empty array is the normal, expected case.
+  tamperFlags    String[] @map("tamper_flags")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([fingerprintHash])
+  @@index([ipAddress, createdAt])
+  @@map("device_fingerprints")
+}
+
+// One row per rating change — what the profile's statistics graph actually
+// plots. Without this, a "rating over time" chart would have nothing real
+// to draw; Rating itself only ever holds the current value.
+model RatingHistory {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  gameMode  String   @map("game_mode")
+  rating    Int
+  gameId    String?  @map("game_id") // the game that caused this change, null for any future manual/admin adjustment
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, gameMode, createdAt])
+  @@map("rating_history")
+}

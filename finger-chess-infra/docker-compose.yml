@@ -1,0 +1,117 @@
+# Expects this file to sit alongside sibling directories:
+#   finger-chess-backend/  finger-chess-frontend/  finger-chess-admin/
+# (exactly how they were delivered) — adjust the `context` paths below if
+# your layout differs.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose exec backend npx prisma migrate deploy   # first run only
+
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: finger_chess_user
+      POSTGRES_PASSWORD: finger_chess_pass
+      POSTGRES_DB: finger_chess
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U finger_chess_user -d finger_chess']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Redis here backs BOTH a cache (safe to lose, see CacheService) AND
+    # matchmaking queue state / Socket.IO pub-sub (losing this mid-match
+    # would drop active queues and cross-instance broadcast routing) — an
+    # AOF-persisted volume is used in production compose profiles even
+    # though local dev doesn't strictly need it, so the behavior matches.
+    command: redis-server --appendonly yes
+
+  backend:
+    build:
+      context: ../finger-chess-backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://finger_chess_user:finger_chess_pass@postgres:5432/finger_chess?schema=public&connection_limit=10
+      FINGER_CHESS_REDIS_HOST: redis
+      FINGER_CHESS_REDIS_PORT: 6379
+      FINGER_CHESS_JWT_ACCESS_SECRET: local_dev_access_secret_change_me
+      FINGER_CHESS_JWT_REFRESH_SECRET: local_dev_refresh_secret_change_me
+      FINGER_CHESS_CORS_ORIGINS: http://localhost:3001,http://localhost:5174
+      FINGER_CHESS_TRUST_PROXY_HOPS: 1
+      FINGER_CHESS_FRONTEND_URL: http://localhost:3001
+      # Stripe/mail/OAuth/S3 secrets intentionally omitted — supply via a
+      # local .env file with `env_file: ../finger-chess-backend/.env` uncommented
+      # below, or docker compose --env-file, for anything beyond core
+      # request/response flows (payments, email, KYC upload) to work.
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ../finger-chess-frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the Next.js server at build time (rewrites in
+        # next.config.js). This is a SERVER-side destination — it must be the
+        # backend's in-network address, not localhost (which would be the
+        # frontend container itself).
+        NEXT_PUBLIC_FINGER_CHESS_API_PROXY_TARGET: http://backend:3000
+        NEXT_PUBLIC_FINGER_CHESS_WS_URL: http://localhost:3000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '3001:3001'
+
+  admin-frontend:
+    build:
+      context: ../finger-chess-admin
+      dockerfile: Dockerfile
+      args:
+        # Dev-server proxy only (vite.config.ts); the built SPA's /api calls
+        # are proxied by nginx (nginx.conf.template) using the env below.
+        VITE_FINGER_CHESS_API_PROXY_TARGET: http://localhost:3000
+    restart: unless-stopped
+    environment:
+      FINGER_CHESS_BACKEND_UPSTREAM: http://backend:3000
+    depends_on:
+      - backend
+    ports:
+      - '5174:80'
+
+volumes:
+  postgres_data:
+  redis_data:

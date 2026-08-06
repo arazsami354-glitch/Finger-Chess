@@ -1,0 +1,51 @@
+{
+  "A": {
+    "id": "368aa0ea-22a4-4935-a90c-6ccb52418796",
+    "matches": [
+      {
+        "id": "368aa0ea-22a4-4935-a90c-6ccb52418796-main-r1-s1",
+        "round": 1,
+        "bracket": "main",
+        "whiteUserId": "a0a78a13-93d6-4511-89e8-5d857837d976",
+        "blackUserId": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+        "gameId": "860d6532-f4f6-4a27-b435-f9f74091bf6e"
+      },
+      {
+        "id": "368aa0ea-22a4-4935-a90c-6ccb52418796-main-r1-s2",
+        "round": 1,
+        "bracket": "main",
+        "whiteUserId": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+        "blackUserId": "570c4ddc-cd65-4e37-83e6-0275995f65ca",
+        "gameId": "1a8bde81-a39c-4a27-909a-dbe0d8c74bff"
+      }
+    ]
+  },
+  "B": {
+    "id": "63e5f592-6b0a-4980-b2cf-14c3a5d3c911",
+    "matches": [
+      {
+        "id": "63e5f592-6b0a-4980-b2cf-14c3a5d3c911-main-r1-s1",
+        "round": 1,
+        "bracket": "main",
+        "whiteUserId": "a0a78a13-93d6-4511-89e8-5d857837d976",
+        "blackUserId": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+        "gameId": "a50a262f-9951-431e-b541-de034db643f0"
+      },
+      {
+        "id": "63e5f592-6b0a-4980-b2cf-14c3a5d3c911-main-r1-s2",
+        "round": 1,
+        "bracket": "main",
+        "whiteUserId": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+        "blackUserId": "570c4ddc-cd65-4e37-83e6-0275995f65ca",
+        "gameId": "c993fd04-61d4-44ee-b602-e1981ef18cf7"
+      }
+    ]
+  },
+  "players": {
+    "p1": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhMGE3OGExMy05M2Q2LTQ1MTEtODllOC01ZDg1NzgzN2Q5NzYiLCJlbWFpbCI6InNtb2tlLXAxQHRlc3QubG9jYWwiLCJyb2xlIjoicGxheWVyIiwiaWF0IjoxNzg1NzkzMjQ2LCJleHAiOjE3ODU3OTQxNDZ9.KuB20I-BACMh97_JXR05k0L8mAebj12SgEIRCh4IRzc",
+    "p2": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYzE0OTBkYi02MTVlLTQ3YjctYmJmMy0wMGM0MDBmMTRiNzMiLCJlbWFpbCI6InNtb2tlLXAyQHRlc3QubG9jYWwiLCJyb2xlIjoicGxheWVyIiwiaWF0IjoxNzg1NzkzMjQ2LCJleHAiOjE3ODU3OTQxNDZ9.ipBtt2H_hUewa9MvIVS9UBcMIS8XhJEilhTrjbVUfuU",
+    "p3": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NzBjNGRkYy1jZDY1LTRlMzctODNlNi0wMjc1OTk1ZjY1Y2EiLCJlbWFpbCI6InNtb2tlLXAzQHRlc3QubG9jYWwiLCJyb2xlIjoicGxheWVyIiwiaWF0IjoxNzg1NzkzMjQ2LCJleHAiOjE3ODU3OTQxNDZ9._Q_n-ls2aX23bzoX8Xr3q47Fvo0IHfIJq1ftB__iYK0",
+    "p4": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyZmU4Yzk2ZS04YTliLTQzMDMtODU5ZS05YWRjNWFkNjE2YTQiLCJlbWFpbCI6InNtb2tlLXA0QHRlc3QubG9jYWwiLCJyb2xlIjoicGxheWVyIiwiaWF0IjoxNzg1NzkzMjQ3LCJleHAiOjE3ODU3OTQxNDd9.EAUed09J1WFduoJiWfAkG4cCwhmgYWJ3mXLEjgEVjAU"
+  },
+  "admin": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzIzZTM5Ni0zYzVlLTQ0YTItYjNhYi1iMjMyZjUzNjMyMDIiLCJlbWFpbCI6InNtb2tlLWFkbWluQHRlc3QubG9jYWwiLCJyb2xlIjoic3VwZXJfYWRtaW4iLCJpYXQiOjE3ODU3OTMyNDYsImV4cCI6MTc4NTc5NDE0Nn0.V9CsOptldVfyoV_SyjDy-mXa-Pcv6ceHlkyzMWeXm8E"
+}

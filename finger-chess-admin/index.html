@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Baseline CSP via meta tag — a static Vite build has no server-side
+      response to attach real headers to, so this is what's expressible
+      here. X-Frame-Options and Strict-Transport-Security CANNOT be set via
+      meta tag at all; the CDN/reverse proxy serving this build in
+      production MUST add those (X-Frame-Options: DENY at minimum — this is
+      an admin console for a real-money platform, it must never be
+      iframe-embeddable).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none';"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Finger Chess | Platform Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

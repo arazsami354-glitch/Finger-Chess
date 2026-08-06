@@ -1,0 +1,147 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/finger-chess-backend
+
+jobs:
+  # ==========================================================================
+  # LINT + TYPECHECK + PRISMA VALIDATION — runs on every PR and push, fails
+  # fast before anything expensive (Docker build, deploy) is attempted.
+  # ==========================================================================
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: finger_chess_user
+          POSTGRES_PASSWORD: finger_chess_pass
+          POSTGRES_DB: finger_chess_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U finger_chess_user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Prisma validate + generate
+        run: npx prisma validate && npx prisma generate
+
+      - name: Typecheck + build
+        run: npm run build
+
+      - name: Run migrations against a throwaway test database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://finger_chess_user:finger_chess_pass@localhost:5432/finger_chess_test?schema=public
+
+      - name: Test
+        # NOTE: no test suite exists in this project yet — `--passWithNoTests`
+        # (see package.json) keeps this step from failing on that fact rather
+        # than silently pretending coverage exists. Replace this comment
+        # once real spec files land; this step is wired and ready for them.
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://finger_chess_user:finger_chess_pass@localhost:5432/finger_chess_test?schema=public
+          FINGER_CHESS_REDIS_HOST: localhost
+          FINGER_CHESS_REDIS_PORT: 6379
+          FINGER_CHESS_JWT_ACCESS_SECRET: ci_test_secret
+          FINGER_CHESS_JWT_REFRESH_SECRET: ci_test_refresh_secret
+
+  # ==========================================================================
+  # BUILD + PUSH — main branch only, after verify passes. Multi-arch so the
+  # same tag runs on both amd64 CI runners and arm64 (Graviton) production
+  # nodes without a separate build.
+  # ==========================================================================
+  build-and-push:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # DEPLOY — triggers a rolling update by patching the image tag on the
+  # existing Kubernetes Deployment. Requires a KUBE_CONFIG secret holding a
+  # kubeconfig scoped to this one Deployment (least privilege — this
+  # workflow can update one image reference, nothing else in the cluster).
+  # ==========================================================================
+  deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+
+      - name: Roll out new image
+        run: |
+          kubectl set image deployment/finger-chess-backend \
+            finger-chess-backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n finger-chess
+          kubectl rollout status deployment/finger-chess-backend -n finger-chess --timeout=180s

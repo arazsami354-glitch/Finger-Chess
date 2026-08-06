@@ -1,0 +1,47 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finger-chess-backend-hpa
+  namespace: finger-chess
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finger-chess-backend
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleUp:
+      # Fast to react to a real spike (e.g. a tournament announcement
+      # driving a sudden wave of matchmaking) — stabilizationWindow of 0
+      # means it can act on the very first metric sample over threshold.
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      # Slow and conservative on the way down — every WebSocket connection
+      # on a pod that gets terminated is a player who experiences at least
+      # a reconnect blip (handled gracefully, see the game gateway's
+      # reconnect logic, but still not free). A 5-minute stabilization
+      # window means a brief dip in load doesn't trigger a scale-down that
+      # then has to scale right back up minutes later.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

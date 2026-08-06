@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finger-chess-admin
+  namespace: finger-chess
+  labels:
+    app: finger-chess-admin
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: finger-chess-admin
+  template:
+    metadata:
+      labels:
+        app: finger-chess-admin
+    spec:
+      containers:
+        - name: finger-chess-admin
+          image: ghcr.io/your-org/finger-chess/finger-chess-admin:latest
+          ports:
+            - containerPort: 80
+          env:
+            # Rendered into nginx's /api proxy at container start (see
+            # finger-chess-admin/nginx.conf.template). In practice the Ingress
+            # routes /api directly to the backend Service, so this only
+            # matters if that rule is absent or bypassed.
+            - name: FINGER_CHESS_BACKEND_UPSTREAM
+              value: 'http://finger-chess-backend'
+          resources:
+            requests: { cpu: '50m', memory: '64Mi' } # static nginx serving pre-built assets — genuinely this light
+            limits: { cpu: '250m', memory: '128Mi' }
+          livenessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finger-chess-admin
+  namespace: finger-chess
+spec:
+  selector:
+    app: finger-chess-admin
+  ports:
+    - port: 80
+      targetPort: 80

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finger-chess-backend
+  namespace: finger-chess
+  labels:
+    app: finger-chess-backend
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # never drop below `replicas` capacity during a rollout — this is a real-money API
+  selector:
+    matchLabels:
+      app: finger-chess-backend
+  template:
+    metadata:
+      labels:
+        app: finger-chess-backend
+    spec:
+      # Spread replicas across nodes — losing one node shouldn't be able to
+      # take out more than one replica's worth of active games/connections.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: finger-chess-backend
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: finger-chess-backend
+          image: ghcr.io/your-org/finger-chess/finger-chess-backend:latest # overwritten per-deploy by CI (see .github/workflows/ci-cd.yml)
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: finger-chess-backend-config
+            - secretRef:
+                name: finger-chess-backend-secrets
+
+          resources:
+            requests:
+              cpu: '250m'
+              memory: '256Mi'
+            limits:
+              cpu: '1000m'
+              memory: '512Mi'
+
+          # Liveness: "is the process fundamentally alive." Deliberately
+          # checks the plain /health route with NO dependency checks — a
+          # temporarily slow database should trigger the READINESS probe
+          # (pulling this pod out of rotation) instead, not a container
+          # restart that does nothing to fix a slow database and just adds
+          # a cold-start on top of it.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness: "is this pod able to serve real traffic right now."
+          # Checks /health/ready, which verifies DB and Redis connectivity
+          # (see health.controller.ts) — a pod that can't reach either gets
+          # pulled from the Service's load-balancing rotation without being
+          # killed, and rejoins automatically once connectivity recovers.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      # WebSocket connections are long-lived — when a pod is being replaced
+      # (rollout, scale-down, node drain), give in-flight games time to
+      # finish their current move / reach a natural pause rather than
+      # hard-killing every open socket at once. The Redis Socket.IO adapter
+      # (redis-io.adapter.ts) means a reconnect can land on a different pod
+      # and resume seamlessly, but a longer grace period still means fewer
+      # players experience a disconnect blip at all during a deploy.
+      terminationGracePeriodSeconds: 45

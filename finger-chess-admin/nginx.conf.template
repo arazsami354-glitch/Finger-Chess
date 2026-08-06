@@ -1,0 +1,65 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Security headers a <meta> tag in index.html literally cannot express
+    # (X-Frame-Options and Strict-Transport-Security have no meta-tag
+    # equivalent) — this is the "production deployment MUST add these at
+    # the CDN/reverse-proxy layer" note from index.html's own comment,
+    # fulfilled at the nginx layer for anyone deploying this container as-is.
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    gzip on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+    # The admin SPA calls the backend at a same-origin relative URL
+    # (/api/v1/... — see src/api/client.ts), so this server must forward
+    # /api to the backend. FINGER_CHESS_BACKEND_UPSTREAM is substituted at
+    # container start by the official nginx entrypoint (envsubst renders
+    # /etc/nginx/templates/*.template into conf.d) and points at the backend
+    # service in whatever environment this image runs in:
+    #   docker compose: http://backend:3000  (Dockerfile default)
+    #   kubernetes:     http://finger-chess-backend  (container env, k8s/21)
+    # In Kubernetes the Ingress routes /api straight to the backend Service
+    # (see infra/k8s/30-ingress.yaml), so this block is the path taken in
+    # compose / non-ingress hosting. Either way only ONE proxy sits in front
+    # of the backend for /api, matching FINGER_CHESS_TRUST_PROXY_HOPS=1.
+    location /api/ {
+        proxy_pass http://${FINGER_CHESS_BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Vite's build fingerprints every JS/CSS asset filename with a content
+    # hash — a filename only ever refers to one immutable set of bytes, so
+    # these can be cached by the browser essentially forever. `index.html`
+    # itself must NOT be cached this way (see below) since it's the one
+    # file that changes on every deploy without changing its own filename.
+    location ~* \.(?:js|css|woff2?|svg|png|jpg|jpeg|gif|ico)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Client-side routing (React Router) — any path that isn't a real file
+    # falls back to index.html so a hard refresh on e.g. /wallet doesn't 404.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

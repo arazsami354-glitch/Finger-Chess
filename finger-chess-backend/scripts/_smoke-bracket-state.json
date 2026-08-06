@@ -1,0 +1,112 @@
+{
+  "id": "27671270-9f1c-4e05-acae-ec6fb906779f",
+  "bracket": [
+    {
+      "id": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r1-s1",
+      "tournamentId": "27671270-9f1c-4e05-acae-ec6fb906779f",
+      "round": 1,
+      "bracket": "main",
+      "slot": 1,
+      "gameId": "0811ebb0-4c1a-48b2-b869-e5ce784ee134",
+      "whiteUserId": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+      "blackUserId": "a0a78a13-93d6-4511-89e8-5d857837d976",
+      "status": "completed",
+      "result": "white_win",
+      "winnerUserId": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+      "scheduledAt": "2026-08-03T21:35:27.177Z",
+      "startedAt": null,
+      "endedAt": "2026-08-03T21:35:27.528Z",
+      "game": {
+        "id": "0811ebb0-4c1a-48b2-b869-e5ce784ee134",
+        "status": "completed",
+        "result": "white_win"
+      },
+      "whiteUser": {
+        "id": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+        "email": "smoke-p4@test.local",
+        "fullName": "smoke-p4"
+      },
+      "blackUser": {
+        "id": "a0a78a13-93d6-4511-89e8-5d857837d976",
+        "email": "smoke-p1@test.local",
+        "fullName": "smoke-p1"
+      }
+    },
+    {
+      "id": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r1-s2",
+      "tournamentId": "27671270-9f1c-4e05-acae-ec6fb906779f",
+      "round": 1,
+      "bracket": "main",
+      "slot": 2,
+      "gameId": "1a8c4848-dc4b-4957-b670-b7b32b6d42d7",
+      "whiteUserId": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+      "blackUserId": "570c4ddc-cd65-4e37-83e6-0275995f65ca",
+      "status": "completed",
+      "result": "white_win",
+      "winnerUserId": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+      "scheduledAt": "2026-08-03T21:35:27.186Z",
+      "startedAt": null,
+      "endedAt": "2026-08-03T21:35:27.556Z",
+      "game": {
+        "id": "1a8c4848-dc4b-4957-b670-b7b32b6d42d7",
+        "status": "completed",
+        "result": "white_win"
+      },
+      "whiteUser": {
+        "id": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+        "email": "smoke-p2@test.local",
+        "fullName": "smoke-p2"
+      },
+      "blackUser": {
+        "id": "570c4ddc-cd65-4e37-83e6-0275995f65ca",
+        "email": "smoke-p3@test.local",
+        "fullName": "smoke-p3"
+      }
+    },
+    {
+      "id": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r2-s1",
+      "tournamentId": "27671270-9f1c-4e05-acae-ec6fb906779f",
+      "round": 2,
+      "bracket": "main",
+      "slot": 1,
+      "gameId": "b64e517f-7340-4027-b36c-157b4ec710a3",
+      "whiteUserId": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+      "blackUserId": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+      "status": "ongoing",
+      "result": null,
+      "winnerUserId": null,
+      "scheduledAt": "2026-08-03T21:35:27.565Z",
+      "startedAt": null,
+      "endedAt": null,
+      "game": {
+        "id": "b64e517f-7340-4027-b36c-157b4ec710a3",
+        "status": "waiting",
+        "result": null
+      },
+      "whiteUser": {
+        "id": "2fe8c96e-8a9b-4303-859e-9adc5ad616a4",
+        "email": "smoke-p4@test.local",
+        "fullName": "smoke-p4"
+      },
+      "blackUser": {
+        "id": "1c1490db-615e-47b7-bbf3-00c400f14b73",
+        "email": "smoke-p2@test.local",
+        "fullName": "smoke-p2"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "toSide": "white",
+      "fromSide": "winner",
+      "toMatchId": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r2-s1",
+      "fromMatchId": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r1-s1"
+    },
+    {
+      "toSide": "black",
+      "fromSide": "winner",
+      "toMatchId": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r2-s1",
+      "fromMatchId": "27671270-9f1c-4e05-acae-ec6fb906779f-main-r1-s2"
+    }
+  ]
+}
